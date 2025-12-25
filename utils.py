@@ -43,6 +43,7 @@ GITHUB_CSV_URLS = [
     "https://raw.githubusercontent.com/skatzrsk/semantic-assistant/main/data31.xlsx"
 ]
 
+@functools.lru_cache(maxsize=5000)
 def split_by_slash(phrase: str):
     phrase = phrase.strip()
     segments = [seg.strip() for seg in phrase.split("|")]
