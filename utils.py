@@ -42,7 +42,7 @@ for group in SYNONYM_GROUPS:
 
 # ---------- источники данных ----------
 GITHUB_CSV_URLS = [
-    "https://raw.githubusercontent.com/skatzrskx55q55555/data-assistant-vfiziki/main/data6.xlsx",
+    "https://raw.githubusercontent.com/skatzrskx55q/data-assistant-vfiziki/main/data6.xlsx",
     "https://raw.githubusercontent.com/skatzrsk55555/semantic-assistant/main/data21.xlsx",
     "https://raw.githubusercontent.com/skatzrsk555/semantic-assistant/main/data31.xlsx"
 ]
