@@ -16,20 +16,16 @@ df = get_data()
 def normalize_topic(t: str) -> str:
     return t.strip().lower()
 
-def display_topic(t: str) -> str:
-    return t.capitalize()
+# мапа: нормализованная → оригинальная (красивая)
+topic_display_map = {}
+for topics in df["topics"]:
+    for topic in topics:
+        norm = normalize_topic(topic)
+        if norm not in topic_display_map:
+            topic_display_map[norm] = topic.strip()
 
 # уникальные нормализованные тематики
-all_topics_norm = sorted({
-    normalize_topic(topic)
-    for topics in df["topics"]
-    for topic in topics
-})
-
-# мапа: нормализованная → красивая
-topic_display_map = {
-    t: display_topic(t) for t in all_topics_norm
-}
+all_topics_norm = sorted(topic_display_map.keys())
 
 # ---------------- TABS ----------------
 tab1, tab2, tab3 = st.tabs(["🔍 Поиск", "🚫 Не используем", "✅/❌ Да и Нет"])
@@ -50,9 +46,7 @@ with tab1:
     # -------- Фразы по тематикам --------
     if selected_topics:
         st.markdown("### 📂 Фразы по выбранным тематикам:")
-
         shown_phrases = set()
-
         filtered_df = df[
             df["topics"].apply(
                 lambda topics: any(
