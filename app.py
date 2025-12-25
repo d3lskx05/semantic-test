@@ -1,233 +1,170 @@
 import streamlit as st
-from utils import load_all_excels, semantic_search, keyword_search
-import torch
+from utils import load_all_excels, semantic_search, keyword_search, get_model
+import torch  # для работы с тензорами
 
 st.set_page_config(page_title="Проверка фраз ФЛ", layout="centered")
 st.title("🤖 Проверка фраз")
 
-# ---------------- DATA ----------------
 @st.cache_data
 def get_data():
-    return load_all_excels()
+    df = load_all_excels()
+    model = get_model()
+    df.attrs['phrase_embs'] = model.encode(df['phrase_proc'].tolist(), convert_to_tensor=True)
+    return df
 
 df = get_data()
 
-# ---------------- TOPICS ----------------
-def normalize_topic(t: str) -> str:
-    return t.strip().lower()
+# 🔘 Все уникальные тематики
+all_topics = sorted({topic for topics in df['topics'] for topic in topics})
 
-# мапа: нормализованная → оригинальная (красивая)
-topic_display_map = {}
-for topics in df["topics"]:
-    for topic in topics:
-        norm = normalize_topic(topic)
-        if norm not in topic_display_map:
-            topic_display_map[norm] = topic.strip()
-
-# уникальные нормализованные тематики
-all_topics_norm = sorted(topic_display_map.keys())
-
-# ---------------- TABS ----------------
+# --- Вкладки ---
 tab1, tab2, tab3 = st.tabs(["🔍 Поиск", "🚫 Не используем", "✅/❌ Да и Нет"])
 
-# ================= TAB 1 =================
+# ============= TAB 1: ПОИСК =============
 with tab1:
-    selected_topics = st.multiselect(
-        "Фильтр по тематикам:",
-        options=all_topics_norm,
-        format_func=lambda t: topic_display_map[t]
-    )
+    selected_topics = st.multiselect("Фильтр по тематикам (независимо от поиска):", all_topics)
+    filter_search_by_topics = st.checkbox("Искать только в выбранных тематиках", value=False)
 
-    filter_search_by_topics = st.checkbox(
-        "Искать только в выбранных тематиках",
-        value=False
-    )
-
-    # -------- Фразы по тематикам --------
+    # 📂 Фразы по выбранным тематикам
     if selected_topics:
         st.markdown("### 📂 Фразы по выбранным тематикам:")
-        shown_phrases = set()
-        filtered_df = df[
-            df["topics"].apply(
-                lambda topics: any(
-                    normalize_topic(t) in selected_topics for t in topics
-                )
-            )
-        ]
-
+        filtered_df = df[df['topics'].apply(lambda topics: any(t in selected_topics for t in topics))]
         for row in filtered_df.itertuples():
-            if row.phrase_full in shown_phrases:
-                continue
-            shown_phrases.add(row.phrase_full)
-
-            topics_pretty = [
-                topic_display_map.get(normalize_topic(t), t)
-                for t in row.topics
-            ]
-
             with st.container():
                 st.markdown(
-                    f"""
-                    <div style="border:1px solid #e0e0e0;
-                                border-radius:12px;
-                                padding:16px;
-                                margin-bottom:12px;
-                                background:#f9f9f9;">
-                        <div style="font-size:18px;font-weight:600;">📝 {row.phrase_full}</div>
-                        <div style="font-size:14px;color:#666;">
-                            🔖 Тематики: <strong>{', '.join(topics_pretty)}</strong>
-                        </div>
-                    </div>
-                    """,
+                    f"""<div style="border: 1px solid #e0e0e0; border-radius: 12px; padding: 16px; margin-bottom: 12px; background-color: #f9f9f9; box-shadow: 0 2px 6px rgba(0,0,0,0.05);">
+                        <div style="font-size: 18px; font-weight: 600; color: #333;">📝 {row.phrase_full}</div>
+                        <div style="margin-top: 4px; font-size: 14px; color: #666;">🔖 Тематики: <strong>{', '.join(row.topics)}</strong></div>
+                    </div>""",
                     unsafe_allow_html=True
                 )
-
                 if row.comment and str(row.comment).strip().lower() != "nan":
-                    with st.expander("💬 Комментарий"):
+                    with st.expander("💬 Комментарий", expanded=False):
                         st.markdown(row.comment)
 
-    # -------- Поиск --------
+    # 📥 Поисковый запрос
     query = st.text_input("Введите ваш запрос:")
 
     if query:
         try:
             search_df = df
-
             if filter_search_by_topics and selected_topics:
-                search_df = df[
-                    df["topics"].apply(
-                        lambda topics: any(
-                            normalize_topic(t) in selected_topics for t in topics
-                        )
-                    )
-                ].copy()
+                mask = df['topics'].apply(lambda topics: any(t in selected_topics for t in topics))
+                search_df = df[mask].copy()
 
-                if search_df.empty:
-                    search_df.attrs["phrase_embs"] = torch.empty((0, 384))
+                # Пересчитываем эмбеддинги для фильтрованного DF (надежнее)
+                if not search_df.empty:
+                    model = get_model()
+                    search_df.attrs['phrase_embs'] = model.encode(search_df['phrase_proc'].tolist(), convert_to_tensor=True)
+                else:
+                    search_df.attrs['phrase_embs'] = torch.empty((0, 384))  # Пустой тензор (пример dim=384 для модели)
 
             if search_df.empty:
                 st.warning("Нет данных для поиска по выбранным тематикам.")
             else:
-                # ----- Semantic -----
                 results = semantic_search(query, search_df)
-
                 if results:
-                    st.markdown("### 🔍 Умный поиск")
-                    for score, phrase, topics, comment in results:
-                        topics_pretty = [
-                            topic_display_map.get(normalize_topic(t), t)
-                            for t in topics
-                        ]
-
-                        st.markdown(
-                            f"""
-                            <div style="border:1px solid #e0e0e0;
-                                        border-radius:12px;
-                                        padding:16px;
-                                        margin-bottom:12px;
-                                        background:#f9f9f9;">
-                                <div style="font-size:18px;font-weight:600;">🧠 {phrase}</div>
-                                <div style="font-size:14px;color:#666;">
-                                    🔖 Тематики: <strong>{', '.join(topics_pretty)}</strong>
-                                </div>
-                                <div style="font-size:13px;color:#999;">
-                                    🎯 Релевантность: {score:.2f}
-                                </div>
-                            </div>
-                            """,
-                            unsafe_allow_html=True
-                        )
-
-                        if comment and str(comment).strip().lower() != "nan":
-                            with st.expander("💬 Комментарий"):
-                                st.markdown(comment)
+                    st.markdown("### 🔍 Результаты умного поиска:")
+                    for score, phrase_full, topics, comment in results:
+                        with st.container():
+                            st.markdown(
+                                f"""<div style="border: 1px solid #e0e0e0; border-radius: 12px; padding: 16px; margin-bottom: 12px; background-color: #f9f9f9; box-shadow: 0 2px 6px rgba(0,0,0,0.05);">
+                                    <div style="font-size: 18px; font-weight: 600; color: #333;">🧠 {phrase_full}</div>
+                                    <div style="margin-top: 4px; font-size: 14px; color: #666;">🔖 Тематики: <strong>{', '.join(topics)}</strong></div>
+                                    <div style="margin-top: 2px; font-size: 13px; color: #999;">🎯 Релевантность: {score:.2f}</div>
+                                </div>""",
+                                unsafe_allow_html=True
+                            )
+                            if comment and str(comment).strip().lower() != "nan":
+                                with st.expander("💬 Комментарий", expanded=False):
+                                    st.markdown(comment)
                 else:
-                    st.info("Совпадений не найдено.")
+                    st.warning("Совпадений не найдено в умном поиске.")
 
-                # ----- Keyword -----
                 exact_results = keyword_search(query, search_df)
-
                 if exact_results:
-                    st.markdown("### 🧷 Точный поиск")
+                    st.markdown("### 🧷 Точный поиск:")
                     for phrase, topics, comment in exact_results:
-                        topics_pretty = [
-                            topic_display_map.get(normalize_topic(t), t)
-                            for t in topics
-                        ]
-
-                        st.markdown(
-                            f"""
-                            <div style="border:1px solid #e0e0e0;
-                                        border-radius:12px;
-                                        padding:16px;
-                                        margin-bottom:12px;
-                                        background:#f9f9f9;">
-                                <div style="font-size:18px;font-weight:600;">📌 {phrase}</div>
-                                <div style="font-size:14px;color:#666;">
-                                    🔖 Тематики: <strong>{', '.join(topics_pretty)}</strong>
-                                </div>
-                            </div>
-                            """,
-                            unsafe_allow_html=True
-                        )
-
-                        if comment and str(comment).strip().lower() != "nan":
-                            with st.expander("💬 Комментарий"):
-                                st.markdown(comment)
+                        with st.container():
+                            st.markdown(
+                                f"""<div style="border: 1px solid #e0e0e0; border-radius: 12px; padding: 16px; margin-bottom: 12px; background-color: #f9f9f9; box-shadow: 0 2px 6px rgba(0,0,0,0.05);">
+                                    <div style="font-size: 18px; font-weight: 600; color: #333;">📌 {phrase}</div>
+                                    <div style="margin-top: 4px; font-size: 14px; color: #666;">🔖 Тематики: <strong>{', '.join(topics)}</strong></div>
+                                </div>""",
+                                unsafe_allow_html=True
+                            )
+                            if comment and str(comment).strip().lower() != "nan":
+                                with st.expander("💬 Комментарий", expanded=False):
+                                    st.markdown(comment)
+                else:
+                    st.info("Ничего не найдено в точном поиске.")
 
         except Exception as e:
-            st.error(f"Ошибка: {e}")
+            st.error(f"Ошибка при обработке запроса: {e}")
 
-# ================= TAB 2 =================
+
+# ============= TAB 2: НЕ ИСПОЛЬЗУЕМ =============
 with tab2:
     st.markdown("### 🚫 Локалы, которые **не используем**")
     unused_topics = [
-        "Local_Balance_Transfer", "Local_Friends", "Local_Next_Payment",
-        "Local_Order_Cash", "Local_Other_Cashback", "Local_RemittanceStatus",
-        "Подожди (Wait)", "Local_X5", "PassportChangeFirst",
-        "PassportChangeSecond", "Меньше (Local_Less)", "Больше (Local_More)",
-        "Рефинансирование под залог недвижимости",
-        "Действующий займ", "General Мои кредитные предложения",
-        "Настроить/Изменить/Восстановить",
-        "Как сделать устройство доверенным",
-        "Что такое доверенное устройство",
-        "Что такое секретный код",
-        "Новая карта", "Проблема с начислением кэшбэка"
+        "Local_Balance_Transfer",
+        "Local_Friends",
+        "Local_Next_Payment",
+        "Local_Order_Cash",
+        "Local_Other_Cashback",  # Добавлена запятая
+        "Local_RemittanceStatus",
+        "Подожди (Wait)",
+        "Local_X5",
+        "PassportChangeFirst",
+        "PassportChangeSecond",
+        "Меньше (Local_Less)",
+        "Больше (Local_More)",
+        "Рефинансирование под залог недвижимости (Local_Secured_Refinancing)",
+        "Действующий займ (Local_Current_MFO_2)",
+        "General Мои кредитные предложения (General_My_loan_offers)",
+        "Настроить/Изменить/Восстановить (Local_Setup_Secret_Code)",
+        "Как сделать устройство доверенным (Local_Trusted_Device)",
+        "Что такое доверенное устройство (Local_About_Trusted_Device)",
+        "Что такое секретный код (Local_About_Secret_Code)",
+        "займы более 100 тыс (Local_MoreNumbers)",
+        "займы меньше 100 тыс (Local_LessNumbers)",
+        "Новая карта (NewCard)",
+        "Проблема с начислением кэшбэка (Local_Problem_CashBack)"
     ]
-    for t in unused_topics:
-        st.markdown(f"- {t}")
+    for topic in unused_topics:
+        st.markdown(f"- {topic}")
 
-# ================= TAB 3 =================
+# ============= TAB 3: ДА/НЕТ =============
 def render_phrases_grid(phrases, cols=3, color="#e0f7fa"):
     rows = [phrases[i:i+cols] for i in range(0, len(phrases), cols)]
     for row in rows:
-        columns = st.columns(cols)
-        for col, phrase in zip(columns, row):
+        cols_streamlit = st.columns(cols)
+        for col, phrase in zip(cols_streamlit, row):
             col.markdown(
-                f"""
-                <div style="background:{color};
-                            padding:6px 10px;
-                            border-radius:12px;
-                            margin:4px;
-                            font-size:14px;">
-                    {phrase}
-                </div>
-                """,
+                f"""<div style="background-color:{color};
+                                padding:6px 10px;
+                                border-radius:12px;
+                                display:inline-block;
+                                margin:4px;
+                                font-size:14px;">{phrase}</div>""",
                 unsafe_allow_html=True
             )
 
 with tab3:
-    st.markdown("### ✅ Интерпретации «ДА»")
-    render_phrases_grid(
-        [
-            "Да", "Ага", "Угу", "Можно", "Готов",
-            "Подскажите", "Расскажи", "Скажи", "Проверь"
-        ],
-        color="#d1f5d3"
-    )
+    st.markdown("### ✅ Интерпретации 'ДА'")
+    yes_phrases = [
+        "Подсказать", "Помню", "Хорошо", "Да", "Ага", "Угу",
+        "Да по этому вопросу", "Остались", "Можно", "Жги", "Валяй", "Готов",
+        "Ну-ну", "Быстрее", "Проверь", "Проверяй", "Все равно хочу",
+        "Подскажите", "Расскажи", "Скажи", "Проверил", "Давал",
+        "Я могу", "У меня вопрос есть", "Сказал", "Проконсультируйте", "Пробовала вносите в вашу базу"
+    ]
+    render_phrases_grid(yes_phrases, cols=3, color="#d1f5d3")
 
-    st.markdown("### ❌ Интерпретации «НЕТ»")
-    render_phrases_grid(
-        ["Не надо", "Не хочу", "Не готов", "Не интересно"],
-        color="#f9d6d5"
-    )
+    st.markdown("---")
+
+    st.markdown("### ❌ Интерпретации 'НЕТ'")
+    no_phrases = [
+        "Не надо", "Не хочу", "Не готов", "Не помню", "Не пробовала", "Не интересно"
+    ]
+    render_phrases_grid(no_phrases, cols=3, color="#f9d6d5")
