@@ -8,6 +8,17 @@ import pymorphy2
 import functools
 import os
 
+def get_github_headers():
+    """
+    Возвращает headers для GitHub requests.
+    Если GITHUB_TOKEN есть в env — используем его.
+    Если нет — работаем без авторизации (для публичных repo).
+    """
+    token = os.getenv("GITHUB_TOKEN")
+    if token:
+        return {"Authorization": f"token {token}"}
+    return {}
+
 # ---------- модель и морфологический разбор ----------
 @functools.lru_cache(maxsize=1)
 def get_model():
@@ -65,7 +76,7 @@ def split_by_slash(phrase: str):
     return [p for p in parts if p]
 
 def load_excel(url):
-    resp = requests.get(url)
+    resp = requests.get(url, headers=get_github_headers())
     if resp.status_code != 200:
         raise ValueError(f"Ошибка загрузки {url}")
     df = pd.read_excel(BytesIO(resp.content))
