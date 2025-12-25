@@ -82,7 +82,10 @@ def split_by_slash(phrase: str):
     return all_phrases
 
 def load_excel(url):
-    resp = requests.get(url)
+    GITHUB_TOKEN = st.secrets["GITHUB_TOKEN"]
+    headers = {"Authorization": f"token {GITHUB_TOKEN}"}
+    
+    resp = requests.get(url, headers=headers)
     if resp.status_code != 200:
         raise ValueError(f"Ошибка загрузки {url}")
     df = pd.read_excel(BytesIO(resp.content))
