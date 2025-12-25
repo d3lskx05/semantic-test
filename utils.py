@@ -7,7 +7,6 @@ from sentence_transformers import SentenceTransformer, util
 import pymorphy2
 import functools
 import os
-from itertools import product
 
 # ---------- модель и морфологический разбор ----------
 @functools.lru_cache(maxsize=1)
@@ -38,54 +37,35 @@ for group in SYNONYM_GROUPS:
         SYNONYM_DICT[lemma] = lemmas
 
 GITHUB_CSV_URLS = [
-    "https://raw.githubusercontent.com/d3lskx05/semantic-test/main/data6.xlsx",
+    "https://raw.githubusercontent.com/skatzrskx55q/data-assistant-vfiziki/main/data6.xlsx",
     "https://raw.githubusercontent.com/skatzrsk/semantic-assistant/main/data21.xlsx",
     "https://raw.githubusercontent.com/skatzrsk/semantic-assistant/main/data31.xlsx"
 ]
 
-@functools.lru_cache(maxsize=5000)
 def split_by_slash(phrase: str):
     phrase = phrase.strip()
-    segments = [seg.strip() for seg in phrase.split("|")]
-    all_phrases = []
-
-    for segment in segments:
-        parts = []
-        last_idx = 0
-
-        for m in re.finditer(r'\b[\w-]+(?:/[\w-]+)+\b', segment):
-            # текст до блока с /
-            if m.start() > last_idx:
-                prefix = segment[last_idx:m.start()].strip()
-                if prefix:
-                    parts.append([prefix])
-
-            # варианты внутри /
-            options = [opt.strip() for opt in m.group(0).split("/") if opt.strip()]
-            parts.append(options)
-
-            last_idx = m.end()
-
-        # хвост после последнего /
-        if last_idx < len(segment):
-            suffix = segment[last_idx:].strip()
-            if suffix:
-                parts.append([suffix])
-
-        # собираем все комбинации
-        for combination in product(*parts):
-            combined = " ".join(combination)
-            combined = re.sub(r"\s+", " ", combined).strip()
-            if combined:
-                all_phrases.append(combined)
-
-    return all_phrases
+    parts = []
+    for segment in phrase.split("|"):
+        segment = segment.strip()
+        if "/" in segment:
+            tokens = [p.strip() for p in segment.split("/") if p.strip()]
+            if len(tokens) == 2:
+                m = re.match(r"^(.*?\b)?(\w+)\s*/\s*(\w+)(\b.*?)?$", segment)
+                if m:
+                    prefix = (m.group(1) or "").strip()
+                    first = m.group(2).strip()
+                    second = m.group(3).strip()
+                    suffix = (m.group(4) or "").strip()
+                    parts.append(" ".join(filter(None, [prefix, first, suffix])))
+                    parts.append(" ".join(filter(None, [prefix, second, suffix])))
+                    continue
+            parts.extend(tokens)
+        else:
+            parts.append(segment)
+    return [p for p in parts if p]
 
 def load_excel(url):
-    GITHUB_TOKEN = st.secrets["GITHUB_TOKEN"]
-    headers = {"Authorization": f"token {GITHUB_TOKEN}"}
-    
-    resp = requests.get(url, headers=headers)
+    resp = requests.get(url)
     if resp.status_code != 200:
         raise ValueError(f"Ошибка загрузки {url}")
     df = pd.read_excel(BytesIO(resp.content))
