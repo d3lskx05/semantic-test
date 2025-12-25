@@ -5,9 +5,6 @@ import torch  # для работы с тензорами
 st.set_page_config(page_title="Проверка фраз ФЛ", layout="centered")
 st.title("🤖 Проверка фраз")
 
-if "GITHUB_TOKEN" in st.secrets:
-    os.environ["GITHUB_TOKEN"] = st.secrets["GITHUB_TOKEN"]
-
 @st.cache_data
 def get_data():
     df = load_all_excels()
