@@ -7,7 +7,6 @@ from sentence_transformers import SentenceTransformer, util
 import pymorphy2
 import functools
 import os
-from itertools import product
 
 def get_github_headers():
     """
