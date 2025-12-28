@@ -1,4 +1,5 @@
 import streamlit as st
+from itertools import product
 from utils import load_all_excels, semantic_search, keyword_search, get_model
 import torch  # для работы с тензорами
 
