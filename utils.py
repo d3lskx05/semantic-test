@@ -7,6 +7,7 @@ from sentence_transformers import SentenceTransformer, util
 import pymorphy2
 import functools
 import os
+from itertools import product
 
 # ---------- модель и морфологический разбор ----------
 @functools.lru_cache(maxsize=1)
