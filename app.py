@@ -7,10 +7,7 @@ st.title("🤖 Проверка фраз")
 
 @st.cache_data
 def get_data():
-    df = load_all_excels()
-    model = get_model()
-    df.attrs['phrase_embs'] = model.encode(df['phrase_proc'].tolist(), convert_to_tensor=True)
-    return df
+    return load_all_excels()
 
 df = get_data()
 
@@ -54,10 +51,10 @@ with tab1:
 
                 # Пересчитываем эмбеддинги для фильтрованного DF (надежнее)
                 if not search_df.empty:
-                    model = get_model()
-                    search_df.attrs['phrase_embs'] = model.encode(search_df['phrase_proc'].tolist(), convert_to_tensor=True)
+                    idxs = search_df.index.to_list()
+                    search_df.attrs['phrase_embs'] = df.attrs['phrase_embs'][idxs]
                 else:
-                    search_df.attrs['phrase_embs'] = torch.empty((0, 384))  # Пустой тензор (пример dim=384 для модели)
+                    search_df.attrs['phrase_embs'] = torch.empty((0, df.attrs['phrase_embs'].shape[1]))
 
             if search_df.empty:
                 st.warning("Нет данных для поиска по выбранным тематикам.")
