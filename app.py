@@ -1,5 +1,4 @@
 import streamlit as st
-from itertools import product
 from utils import load_all_excels, semantic_search, keyword_search, get_model
 import torch  # для работы с тензорами
 
@@ -8,7 +7,10 @@ st.title("🤖 Проверка фраз")
 
 @st.cache_data
 def get_data():
-    return load_all_excels()
+    df = load_all_excels()
+    model = get_model()
+    df.attrs['phrase_embs'] = model.encode(df['phrase_proc'].tolist(), convert_to_tensor=True)
+    return df
 
 df = get_data()
 
@@ -49,9 +51,13 @@ with tab1:
             if filter_search_by_topics and selected_topics:
                 mask = df['topics'].apply(lambda topics: any(t in selected_topics for t in topics))
                 search_df = df[mask].copy()
-            
-                # ✅ берём срез эмбеддингов
-                search_df.attrs['phrase_embs'] = df.attrs['phrase_embs'][mask]
+
+                # Пересчитываем эмбеддинги для фильтрованного DF (надежнее)
+                if not search_df.empty:
+                    model = get_model()
+                    search_df.attrs['phrase_embs'] = model.encode(search_df['phrase_proc'].tolist(), convert_to_tensor=True)
+                else:
+                    search_df.attrs['phrase_embs'] = torch.empty((0, 384))  # Пустой тензор (пример dim=384 для модели)
 
             if search_df.empty:
                 st.warning("Нет данных для поиска по выбранным тематикам.")
